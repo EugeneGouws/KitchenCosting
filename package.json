@@ -7,12 +7,15 @@
     "dev": "vite",
     "dev:netlify": "netlify dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.42.3",
     "@vitejs/plugin-react": "^6.0.1",
     "vite": "^8.0.1",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "wrangler": "^4.105.0"
   },
   "dependencies": {
     "mammoth": "^1.12.0",
