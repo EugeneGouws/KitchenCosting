@@ -94,56 +94,9 @@ export default function App() {
     setModalState({ open: false, type: null, context: null })
   }
 
-  function renderModals(mode) {
-    if (!modalState.open) return null
-
-    function wrap(side, content) {
-      if (mode === 'wide') return <div className={`modal-${side}-wrap`}>{content}</div>
-      return <div className="modal-full-wrap">{content}</div>
-    }
-
-    if (modalState.type === 'editIngredient') return wrap('right',
-      <AddIngredientModal
-        isOpen
-        item={modalState.context}
-        onAdd={({ name, baseUnit, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases }) => {
-          if (modalState.context?.id) {
-            updateIngredient(modalState.context.id, { name, baseUnit, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases })
-          } else {
-            addIngredient({ name, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases }, baseUnit)
-          }
-          closeModal()
-        }}
-        onClose={closeModal}
-      />
-    )
-
-    if (modalState.type === 'import') return (
-      <ImportRecipeModal
-        isOpen
-        recipe={modalState.context}
-        pantry={pantry}
-        collections={collections}
-        onImport={recipe => { addRecipeToState(recipe, {}); closeModal() }}
-        onAddIngredient={(ingredient, baseUnit) => addIngredient(ingredient, baseUnit)}
-        onClose={closeModal}
-      />
-    )
-
-    if (modalState.type === 'editRecipe') return (
-      <ImportRecipeModal
-        isOpen
-        mode="edit"
-        recipe={modalState.context}
-        pantry={pantry}
-        collections={collections}
-        onSave={recipe => { editRecipeInState(recipe.id, recipe); closeModal() }}
-        onAddIngredient={(ingredient, baseUnit) => addIngredient(ingredient, baseUnit)}
-        onClose={closeModal}
-      />
-    )
-
-    if (modalState.type === 'xlsxQueue') return (
+  function renderXlsxQueue() {
+    if (!modalState.open || modalState.type !== 'xlsxQueue') return null
+    return (
       <XlsxImportQueue
         sheets={modalState.context.sheets}
         filename={modalState.context.filename}
@@ -154,18 +107,80 @@ export default function App() {
         onClose={closeModal}
       />
     )
+  }
 
-    if (modalState.type === 'openCosting') return (
-      <CostingModal
-        recipe={modalState.context}
-        pantry={pantry}
-        layoutMode={mode}
-        onSearchPrices={openPricingSession}
-        onClose={closeModal}
-      />
+  function renderPopout() {
+    if (!modalState.open) return null
+
+    let sizeKey = null
+    let content = null
+
+    if (modalState.type === 'editIngredient') {
+      sizeKey = 'ingredient'
+      content = (
+        <AddIngredientModal
+          isOpen
+          item={modalState.context}
+          onAdd={({ name, baseUnit, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases }) => {
+            if (modalState.context?.id) {
+              updateIngredient(modalState.context.id, { name, baseUnit, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases, priceSource: 'user' })
+            } else {
+              addIngredient({ name, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases, priceSource: 'user' }, baseUnit)
+            }
+            closeModal()
+          }}
+          onClose={closeModal}
+        />
+      )
+    } else if (modalState.type === 'import') {
+      sizeKey = 'recipe'
+      content = (
+        <ImportRecipeModal
+          isOpen
+          recipe={modalState.context}
+          pantry={pantry}
+          collections={collections}
+          onImport={recipe => { addRecipeToState(recipe, {}); closeModal() }}
+          onAddIngredient={(ingredient, baseUnit) => addIngredient(ingredient, baseUnit)}
+          onClose={closeModal}
+        />
+      )
+    } else if (modalState.type === 'editRecipe') {
+      sizeKey = 'recipe'
+      content = (
+        <ImportRecipeModal
+          isOpen
+          mode="edit"
+          recipe={modalState.context}
+          pantry={pantry}
+          collections={collections}
+          onSave={recipe => { editRecipeInState(recipe.id, recipe); closeModal() }}
+          onAddIngredient={(ingredient, baseUnit) => addIngredient(ingredient, baseUnit)}
+          onClose={closeModal}
+        />
+      )
+    } else if (modalState.type === 'openCosting') {
+      sizeKey = 'costing'
+      content = (
+        <CostingModal
+          recipe={modalState.context}
+          pantry={pantry}
+          layoutMode={layoutMode}
+          onSearchPrices={openPricingSession}
+          onClose={closeModal}
+        />
+      )
+    }
+
+    if (!content) return null
+
+    return (
+      <div className="modal-popout-overlay">
+        <div className={`modal-popout-box size-${sizeKey}${layoutMode === 'narrow' ? ' narrow' : ''}`}>
+          {content}
+        </div>
+      </div>
     )
-
-    return null
   }
 
   const pantryPanel = (
@@ -208,7 +223,7 @@ export default function App() {
             {recipesPanel}
             <div className="book-spine" aria-hidden="true" />
             {pantryPanel}
-            {renderModals('wide')}
+            {renderXlsxQueue()}
             <svg
               aria-hidden="true"
               style={{ position:'absolute', top:0, left:'50%', transform:'translateX(-50%)', pointerEvents:'none', zIndex:51 }}
@@ -252,11 +267,13 @@ export default function App() {
           <div className="narrow-stack">
             {recipesPanel}
             {pantryPanel}
-            {renderModals('narrow')}
+            {renderXlsxQueue()}
           </div>
           {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
         </div>
       )}
+
+      {renderPopout()}
 
       {pricingIds.length > 0 && (
         <PriceQueueModal

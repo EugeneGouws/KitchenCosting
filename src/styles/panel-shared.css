@@ -73,24 +73,3 @@
   color: var(--tx-muted);
   border-color: var(--border);
 }
-
-/* ── Modal positioning wrappers ── */
-.modal-left-wrap {
-  position: absolute;
-  top: 0; bottom: 0; left: 0;
-  width: calc(50% - 2.5px);
-  z-index: 50;
-}
-
-.modal-right-wrap {
-  position: absolute;
-  top: 0; bottom: 0; right: 0;
-  width: calc(50% - 2.5px);
-  z-index: 50;
-}
-
-.modal-full-wrap {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-}

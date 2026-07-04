@@ -94,6 +94,7 @@ export default function PriceQueueModal({ sessionIds: initialIds, pantry, onSave
       packagePrice:    isNaN(priceNum) ? null : priceNum,
       matchedProduct:  result.product.name ?? result.product.title ?? '',
       dateLastUpdated: today,
+      priceSource:     'apify',
     })
     advance(currentId, 'done')
   }

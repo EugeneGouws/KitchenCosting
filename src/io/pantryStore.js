@@ -10,7 +10,11 @@ import seedPantry from '../data/pantry.json';
 
 const PANTRY_KEY = 'local_pantry';
 const PANTRY_VERSION_KEY = 'kitchen_pantry_version';
-const CURRENT_PANTRY_VERSION = 'v3';
+const CURRENT_PANTRY_VERSION = 'v4';
+
+// Same Worker deployment pricer.js calls for Apify search — see src/lib/pricer.js
+const WORKER_BASE_URL = 'https://nkc-fetch-prices-production.egouws-music.workers.dev';
+const STALE_DAYS = 7;
 
 // ─── Internal read/write ──────────────────────────────────────────────────────
 
@@ -65,6 +69,14 @@ function parseConversionsStr(str) {
 function parseAliasesStr(str) {
   if (!str || typeof str !== 'string' || !str.trim()) return null;
   return str.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+// true if dateStr is missing or older than STALE_DAYS
+function isStale(dateStr) {
+  if (!dateStr) return true;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+  return new Date(dateStr) < cutoff;
 }
 
 // ─── Public reads ─────────────────────────────────────────────────────────────
@@ -150,6 +162,8 @@ export function savePantryItem(data) {
     if (pm != null)                     updated.matchedProduct  = pm;
     if (computedCostPerUnit != null)    updated.costPerUnit     = computedCostPerUnit;
     if (data.dateLastUpdated !== undefined) updated.dateLastUpdated = data.dateLastUpdated;
+    if (data.priceSource !== undefined) updated.priceSource     = data.priceSource;
+    if (data.inUse !== undefined)       updated.inUse           = data.inUse;
 
     // needsCosting: explicit override wins; otherwise false when price complete
     if (data.needsCosting !== undefined) {
@@ -182,6 +196,8 @@ export function savePantryItem(data) {
     packagePrice:    pp,
     matchedProduct:  pm,
     dateLastUpdated: data.dateLastUpdated ?? null,
+    priceSource:     data.priceSource ?? 'user',
+    inUse:           data.inUse ?? true,
     needsCosting:    !priceComplete,
     priceOptionCount: 3,
     searchHints:     [],
@@ -203,13 +219,11 @@ export function savePantryItem(data) {
  */
 export function refreshNeedsCosting() {
   const items = readAllPantry();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 7);
 
   let staleCount = 0;
   const updated = items.map(item => {
     if (!item.dateLastUpdated || item.needsCosting) return item;
-    if (new Date(item.dateLastUpdated) < cutoff) {
+    if (isStale(item.dateLastUpdated)) {
       staleCount++;
       return { ...item, needsCosting: true };
     }
@@ -251,6 +265,7 @@ export function migratePantryIfNeeded() {
       packagePrice:     existing.packagePrice,
       matchedProduct:   existing.matchedProduct,
       dateLastUpdated:  existing.dateLastUpdated,
+      priceSource:      existing.priceSource,
       needsCosting:     existing.needsCosting,
       priceOptionCount: existing.priceOptionCount,
     }
@@ -261,4 +276,55 @@ export function migratePantryIfNeeded() {
 
   writePantry([...merged, ...customItems])
   localStorage.setItem(PANTRY_VERSION_KEY, CURRENT_PANTRY_VERSION)
+}
+
+/**
+ * Silent, one-shot background sync: pulls fresh prices for ingredients used by
+ * the user's saved recipes from the self-hosted price server (via the Worker
+ * proxy), merging into the local pantry. Never throws, never overwrites a
+ * manually-set price (priceSource === 'user'), and only touches items whose
+ * price is missing or older than STALE_DAYS. Safe to call every session load.
+ *
+ * @param {Array} recipes — Recipe[] from readRecipes()
+ */
+export async function syncPricesFromServer(recipes) {
+  const ids = [...new Set(
+    recipes.flatMap(r => (r.ingredients ?? []).map(i => i.matchedIngredient).filter(Boolean))
+  )]
+  if (ids.length === 0) return
+
+  let serverItems
+  try {
+    const resp = await fetch(`${WORKER_BASE_URL}/api/refresh-prices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+    if (!resp.ok) throw new Error(`refresh-prices returned ${resp.status}`)
+    serverItems = await resp.json()
+  } catch (err) {
+    console.error('[pantryStore] price server sync skipped:', err.message)
+    return
+  }
+
+  if (!Array.isArray(serverItems)) return
+
+  const pantryById = Object.fromEntries(readAllPantry().map(item => [item.id, item]))
+
+  for (const serverItem of serverItems) {
+    const local = pantryById[serverItem.id]
+    if (!local) continue
+    if (local.priceSource === 'user') continue
+    if (!isStale(local.dateLastUpdated)) continue
+
+    savePantryItem({
+      id:              serverItem.id,
+      packageValue:    serverItem.package_value,
+      packageUnit:     serverItem.package_unit,
+      packagePrice:    serverItem.package_price,
+      matchedProduct:  serverItem.matched_product,
+      dateLastUpdated: serverItem.last_updated ? serverItem.last_updated.split('T')[0] : new Date().toISOString().split('T')[0],
+      priceSource:     'server',
+    })
+  }
 }

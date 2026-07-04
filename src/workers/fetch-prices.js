@@ -25,6 +25,35 @@ function textResponse(body, status = 200) {
   });
 }
 
+async function handleRefreshPrices(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return jsonResponse({ error: 'invalid-json' }, 400);
+  }
+
+  const { ids } = body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return jsonResponse({ error: 'missing-ids' }, 400);
+  }
+
+  if (!env.PRICE_SERVER_URL) {
+    return jsonResponse({ error: 'price-server-unavailable' }, 502);
+  }
+
+  try {
+    const url = `${env.PRICE_SERVER_URL}/api/prices?ids=${encodeURIComponent(ids.join(','))}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) throw new Error(`price server returned ${resp.status}`);
+    const data = await resp.json();
+    return jsonResponse(data, 200);
+  } catch (err) {
+    console.error('[Worker] refresh-prices error:', err.message);
+    return jsonResponse({ error: 'price-server-unavailable' }, 502);
+  }
+}
+
 export default {
   async fetch(request, env, context) {
     if (request.method === 'OPTIONS') {
@@ -33,6 +62,11 @@ export default {
 
     if (request.method !== 'POST') {
       return textResponse('Method not allowed', 405);
+    }
+
+    const { pathname } = new URL(request.url);
+    if (pathname === '/api/refresh-prices') {
+      return handleRefreshPrices(request, env);
     }
 
     let body;

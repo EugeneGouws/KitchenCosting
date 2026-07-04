@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { readPantry, readRecipes, saveRecipes, savePantryItem, saveRecipe, toggleRecipeFavourite, deleteRecipe as _deleteRecipe, migratePantryIfNeeded } from '../io/index.js'
+import { readPantry, readRecipes, saveRecipes, savePantryItem, saveRecipe, toggleRecipeFavourite, deleteRecipe as _deleteRecipe, migratePantryIfNeeded, syncPricesFromServer } from '../io/index.js'
 import { importFinished, resolveIngredients } from '../lib/index.js'
 
 export default function useAppState() {
@@ -28,6 +28,8 @@ export default function useAppState() {
       setPantry(loadedPantry)
       setRecipes(loadedRecipes)
     }
+
+    syncPricesFromServer(loadedRecipes).then(() => setPantry(readPantry()))
   }, [])
 
   function addRecipeToState(recipe, opts) {
