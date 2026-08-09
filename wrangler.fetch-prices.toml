@@ -1,0 +1,21 @@
+# Apify → Checkers price proxy Worker.
+# Deployed separately from the app:
+#   npx wrangler deploy -c wrangler.fetch-prices.toml --env production
+#
+# Secret (not stored here):
+#   npx wrangler secret put APIFY_KEY -c wrangler.fetch-prices.toml --env production
+#
+# Live at nkc-fetch-prices-production.egouws.workers.dev — the URL the app calls is
+# PRICE_WORKER_URL in src/lib/pricer.js.
+
+name = "nkc-fetch-prices"
+account_id = "3da83df57a3a345c306a805e0c8e68e3"
+main = "src/workers/fetch-prices.js"
+compatibility_date = "2026-04-25"
+workers_dev = true
+
+[env.production]
+vars = { }
+
+[env.development]
+vars = { }

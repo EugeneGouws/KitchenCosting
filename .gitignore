@@ -10,7 +10,9 @@ dist-ssr/
 .env
 .env.local
 .env.*.local
-wrangler.toml
+# NOTE: wrangler.toml is deliberately NOT ignored — Cloudflare Workers Builds reads it
+# from the repo, and ignoring it is what left the app with no deploy config at all.
+# It holds no secrets; those are set with `wrangler secret put`.
 
 # Local-only project folders
 recipeParser/

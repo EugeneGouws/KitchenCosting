@@ -1,0 +1,21 @@
+# The Kitchen Costings app — a static Vite SPA served as a Worker assets deployment.
+#
+# There is deliberately no `main`: the app is pure static output, so Cloudflare serves
+# ./dist directly. Pointing `main` at a script that does not exist is what broke the build.
+#
+# Build first, then deploy:
+#   npm run build
+#   npx wrangler deploy
+#
+# This file MUST stay committed — Cloudflare Workers Builds reads it from the repo.
+# The Apify price proxy is a separate worker with its own config:
+#   npx wrangler deploy -c wrangler.fetch-prices.toml --env production
+
+name = "kitchencosting"
+account_id = "3da83df57a3a345c306a805e0c8e68e3"
+compatibility_date = "2026-08-09"
+
+[assets]
+directory = "./dist"
+# Any unknown path serves index.html — the app routes in the browser.
+not_found_handling = "single-page-application"
