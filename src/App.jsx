@@ -27,7 +27,7 @@ export default function App() {
   const [layoutMode, setLayoutMode]             = useState('wide')
   const [modalState, setModalState]             = useState({ open: false, type: null, context: null })
   const [showWelcome, setShowWelcome]           = useState(() => !localStorage.getItem('kitchen_welcomed'))
-  const [pricePushStage, setPricePushStage]     = useState(null) // null | 'A' | 'B'
+  const [pricePushStage,etPricePushStage]     = useState(null) // null | 'A' | 'B'
 
   const appRef = useRef(null)
 
