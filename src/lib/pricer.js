@@ -3,6 +3,12 @@
 // scores them against a pantry item, and computes costPerUnit.
 // Called by the UI when a user requests a price update for a pantry item.
 
+// The Apify proxy Worker (src/workers/fetch-prices.js). Single source of truth —
+// when the Worker moves, this is the only line to change. It has moved once already:
+// the account subdomain went egouws-music → egouws, which broke every price search
+// silently until someone tried one.
+export const PRICE_WORKER_URL = 'https://nkc-fetch-prices-production.egouws.workers.dev';
+
 // ─── Normalisation ────────────────────────────────────────────────────────────
 
 function normalizeStr(str) {
@@ -95,9 +101,30 @@ const IRRELEVANT_KEYWORDS = [
   'snack', 'candy', 'sweets', 'pudding',
 ];
 
+// SA brands Checkers stocks. A brand named in an item's searchHints is matched against
+// the product name: hit scores 1.0, no brand expected 0.5, mismatch 0.1. This list must
+// stay in step with the brands used in pantry.json searchHints — a brand that is not
+// listed here simply never scores, so the hint only helps the search query, not ranking.
 const KNOWN_BRANDS = [
-  'cadbury', 'ina paarman', 'snowflake', 'selati', 'huletts',
-  'lancewood', 'clover', 'sasko', 'tastic', 'rama',
+  // baking
+  'snowflake', 'sasko', 'moirs', 'maizena', 'anchor', 'ina paarman',
+  // sugar
+  'huletts', 'selati',
+  // grain, cereal, pasta
+  'tastic', 'spekko', 'jungle', 'bokomo', 'iwisa', 'ace', 'white star',
+  'fattis and monis', 'fattis',
+  // dairy
+  'clover', 'lancewood', 'parmalat', 'fairview', 'orley whip', 'danone',
+  // fats
+  'rama', 'stork', 'flora', 'sunfoil', 'excella', 'olive pride',
+  // tinned, sauces, condiments
+  'koo', 'rhodes', 'all gold', 'knorr', 'safari', 'nola', 'crosse blackwell',
+  // confectionery, hot drinks
+  'cadbury', 'nestle', 'beacon', 'nescafe', 'ricoffy', 'five roses', 'freshpak',
+  // seasoning
+  'robertsons', 'cerebos', 'rajah',
+  // frozen
+  'today', 'nulaid',
 ];
 
 function scoreCandidate(pantryItem, product) {
@@ -153,7 +180,7 @@ export async function fetchPriceOptions(pantryItem) {
   console.log(`%c[Apify] Searching Checkers for: "${searchTerm}"`, 'color: #3498db; font-weight: bold');
   console.log('[Apify] Item details:', { canonicalName: pantryItem.canonicalName, baseUnit: pantryItem.baseUnit, searchHints: pantryItem.searchHints, priceOptionCount: pantryItem.priceOptionCount });
 
-  const resp = await fetch('https://nkc-fetch-prices-production.egouws-music.workers.dev', {
+  const resp = await fetch(PRICE_WORKER_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pantryItem }),

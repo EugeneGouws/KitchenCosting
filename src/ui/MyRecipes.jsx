@@ -10,6 +10,14 @@ function recipeStatus(recipe, pantryMap) {
   if (matched.length === 0) return { status: 'red', total: null }
   if (matched.some(p => p.costPerUnit === 0)) return { status: 'red', total: null }
 
+  // An ingredient whose stored unit never converted into the pantry baseUnit cannot be
+  // costed — multiplying it by a per-gram price yields a plausible but wrong number.
+  const unconvertible = (recipe.ingredients ?? []).some(i => {
+    const p = pantryMap.get(i.matchedIngredient)
+    return p && i.convertedUnit !== p.baseUnit
+  })
+  if (unconvertible) return { status: 'red', total: null }
+
   const total = (recipe.ingredients ?? []).reduce((sum, i) => {
     const p = pantryMap.get(i.matchedIngredient)
     if (!p || !i.convertedAmount) return sum
@@ -181,7 +189,7 @@ export default function MyRecipes({
       <div className="panel-list">
         {filteredRecipes.map(recipe => {
           const isExpanded = expandedId === recipe.id
-          const { status, total } = recipeStatus(recipe, pantryMap)
+          const { status } = recipeStatus(recipe, pantryMap)
           return (
             <div
               key={recipe.id}
@@ -212,11 +220,6 @@ export default function MyRecipes({
                   <div className="recipe-preview-row">
                     <div className="recipe-preview-cost">
                       <span className={`status-dot ${status}`} />
-                      {total !== null && (
-                        <span className="recipe-preview-total">
-                          R{((total * 1.15) / Math.max(1, recipe.servings ?? 1)).toFixed(2)}/svg
-                        </span>
-                      )}
                       <button
                         className="ctrl-btn"
                         onClick={e => { e.stopPropagation(); onOpenCosting(recipe) }}

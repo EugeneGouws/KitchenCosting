@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { refreshNeedsCosting } from './io/index.js'
-import { initAI } from './lib/index.js'
 import useAppState from './hooks/useAppState.js'
 import ImportBar from './ui/ImportBar.jsx'
 import MyPantry from './ui/MyPantry.jsx'
@@ -10,6 +9,7 @@ import AddIngredientModal from './ui/modals/AddIngredientModal.jsx'
 import PriceQueueModal from './ui/modals/PriceQueueModal.jsx'
 import ImportRecipeModal from './ui/modals/ImportRecipeModal.jsx'
 import CostingModal from './ui/modals/CostingModal.jsx'
+import PricePushModal from './ui/modals/PricePushModal.jsx'
 import XlsxImportQueue from './ui/XlsxImportQueue.jsx'
 import './styles/tokens.css'
 import './styles/base.css'
@@ -18,7 +18,7 @@ import './styles/book-layout.css'
 import './styles/panel-shared.css'
 
 export default function App() {
-  const { pantry, recipes, addRecipeToState, editRecipeInState, updateItemPrice, addIngredient, updateIngredient, toggleFavourite, deleteRecipe } = useAppState()
+  const { pantry, recipes, pricePushSets, applyPricePush, finishPricePush, addRecipeToState, editRecipeInState, updateItemPrice, addIngredient, updateIngredient, toggleFavourite, deleteRecipe } = useAppState()
 
   const [pricingIds, setPricingIds]             = useState([])
   const [favFilterOn, setFavFilterOn]           = useState(false)
@@ -27,11 +27,26 @@ export default function App() {
   const [layoutMode, setLayoutMode]             = useState('wide')
   const [modalState, setModalState]             = useState({ open: false, type: null, context: null })
   const [showWelcome, setShowWelcome]           = useState(() => !localStorage.getItem('kitchen_welcomed'))
+  const [pricePushStage, setPricePushStage]     = useState(null) // null | 'A' | 'B'
 
   const appRef = useRef(null)
 
   useEffect(() => { refreshNeedsCosting() }, [])
-  useEffect(() => { initAI() }, [])
+
+  useEffect(() => {
+    if (pricePushStage !== null) return
+    if (pricePushSets.setA.length) setPricePushStage('A')
+    else if (pricePushSets.setB.length) setPricePushStage('B')
+  }, [pricePushSets, pricePushStage])
+
+  function advancePricePush() {
+    if (pricePushStage === 'A' && pricePushSets.setB.length) {
+      setPricePushStage('B')
+    } else {
+      finishPricePush()
+      setPricePushStage(null)
+    }
+  }
 
   useEffect(() => {
     const ro = new ResizeObserver(([entry]) => {
@@ -245,7 +260,6 @@ export default function App() {
               <path d="M0,0 C4,0 9,3.5 12.5,5 C16,3.5 21,0 25,0 Z" fill="url(#spine-bottom-grad)" />
             </svg>
           </div>
-          {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
           <div className="book-page-stack" aria-hidden="true">
             <svg
               aria-hidden="true"
@@ -269,9 +283,12 @@ export default function App() {
             {pantryPanel}
             {renderXlsxQueue()}
           </div>
-          {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
         </div>
       )}
+
+      {/* Rendered at the app root, not inside .book-wrap — as a child of the book it
+          inherited the panel height and its content had to scroll. */}
+      {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
 
       {renderPopout()}
 
@@ -283,6 +300,19 @@ export default function App() {
           onComplete={id => setPricingIds(prev => prev.filter(x => x !== id))}
           onClose={closePricingSession}
         />
+      )}
+
+      {pricePushStage && (
+        <div className="modal-popout-overlay">
+          <div className={`modal-popout-box size-pricePush${layoutMode === 'narrow' ? ' narrow' : ''}`}>
+            <PricePushModal
+              variant={pricePushStage === 'A' ? 'routine' : 'manual'}
+              rows={pricePushStage === 'A' ? pricePushSets.setA : pricePushSets.setB}
+              onApply={rows => { applyPricePush(rows); advancePricePush() }}
+              onSkip={advancePricePush}
+            />
+          </div>
+        </div>
       )}
 
       <ImportBar

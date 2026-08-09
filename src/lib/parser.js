@@ -41,6 +41,7 @@ const UNIT_NORM = {
   l: 'ml', liter: 'ml', liters: 'ml', litre: 'ml', litres: 'ml',
   // Weight
   g: 'g', gram: 'g', grams: 'g', kg: 'g',
+  kilo: 'g', kilos: 'g', kilogram: 'g', kilograms: 'g',
   lb: 'g', lbs: 'g', pound: 'g', pounds: 'g',
   oz: 'g', ounce: 'g', ounces: 'g',
   // Count — only units that reliably appear BETWEEN amount and ingredient name.
@@ -54,17 +55,39 @@ const UNIT_NORM = {
   dash: 'each', dashes: 'each',
 };
 
+// Units only recognised directly after the amount ("2 cloves garlic"), never by the
+// general token scan — the same words trail the name far more often ("garlic cloves",
+// "celery stalks") where treating them as units would strip the ingredient.
+// The pantry carries matching conversions (garlic → clove, celery → stalk/finger).
+const LEADING_ONLY_UNITS = {
+  clove: 'clove', cloves: 'clove',
+  stalk: 'stalk', stalks: 'stalk',
+};
+
 // Multipliers applied after unit normalisation (e.g. kg→g, lb→g, l→ml).
 const UNIT_MULTIPLIERS = {
-  kg: 1000, kilos: 1000,
+  kg: 1000, kilo: 1000, kilos: 1000, kilogram: 1000, kilograms: 1000,
   l: 1000, liter: 1000, liters: 1000, litre: 1000, litres: 1000,
   lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592,
   oz: 28.3495, ounce: 28.3495, ounces: 28.3495,
 };
 
+// Size and preparation words that precede the real ingredient name.
+// Stripped from the front of the name only — "whole" and "piece" still work as units
+// because unit extraction happens before findIngredient.
+const NAME_PREFIX_NOISE = new Set([
+  'large', 'small', 'medium', 'extra', 'jumbo', 'fresh', 'freshly', 'ripe',
+  'chopped', 'finely', 'roughly', 'coarsely', 'grated', 'melted', 'softened',
+  'sifted', 'crushed', 'minced', 'beaten', 'toasted', 'cold', 'warm',
+  'of', 'tin', 'tins', 'can', 'cans', 'jar', 'jars', 'packet', 'packets',
+  'pack', 'packs', 'bottle', 'bottles', 'box', 'tub', 'punnet', 'bunch',
+]);
+
 // Lines that signal the end of the ingredient section or should be skipped.
 // Scale buttons (1x, 2x, 1/2x), form noise, and cooking-method verbs are filtered here.
-const SKIP_LINE_RE = /^(ingredients?:?|method|directions|instructions?|for\s+the|preparation|preheat|oven|bake|mix|combine|stir|beat|fold|pour|grease|line\s+a|serves?|makes?|yields?|top\s+of\s+form|bottom\s+of\s+form|\d+\/?\d*[xX]$)/i;
+// Each verb carries a trailing \b so it only matches the whole word. Without it,
+// "mix" swallowed "Mixed peel" and "bake" swallowed "Bakers chocolate".
+const SKIP_LINE_RE = /^(?:ingredients?:?\b|(?:method|directions|instructions?|preparation|preheat|oven|bake|mix|combine|stir|beat|fold|pour|grease|serves?|makes?|yields?)\b|for\s+the\b|line\s+a\b|top\s+of\s+form\b|bottom\s+of\s+form\b|\d+\/?\d*[xX]$)/i;
 const STOP_RE = /^(method|directions|instructions?|steps?|preparation)\b/i;
 
 // Ingredients that are free/always-available and should never be costed.
@@ -217,6 +240,12 @@ function normaliseLine(raw) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
 
+  // Multipack: "1 x 400g" → "400g", "2 x 400g" → "800g" (fold the count into the size)
+  s = s.replace(
+    /\b(\d+)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\b/g,
+    (_, count, size, unit) => `${Number(count) * Number(size)}${unit}`,
+  );
+
   // Hyphenated mixed fraction: "1-3/4" → "1 3/4"
   s = s.replace(/\b(\d+)-(\d+\/\d+)\b/g, '$1 $2');
 
@@ -236,8 +265,8 @@ function normaliseLine(raw) {
 function findAmount(line) {
   const l = normaliseLine(line);
 
-  // Glued unit: "250g", "500ml", "1.5kg", "1l"
-  const gluedMatch = l.match(/^(\d*\.?\d+)(g|kg|ml|l)\b/i);
+  // Glued unit: "250g", "500ml", "1.5kg", "1l", "8oz", "2lb"
+  const gluedMatch = l.match(/^(\d*\.?\d+)(kg|g|ml|l|oz|lbs|lb)\b/i);
   if (gluedMatch) {
     // Strip any "/ altQty altUnit" alternative notation that follows (e.g. "100g / 3.5oz butter")
     const namePart = l.slice(gluedMatch[0].length).trim().replace(/^\/\s*[\d./]+\s*\w+\s*/, '');
@@ -248,9 +277,33 @@ function findAmount(line) {
     };
   }
 
+  // Trailing amount: "Milk 250ml", "Cake flour 1kg" — common in costing-sheet exports.
+  // Only when the line does not lead with a number, so the leading paths keep priority.
+  if (!/^\d/.test(l)) {
+    const trailingMatch = l.match(/^(.+?)\s+(\d*\.?\d+)\s*(kg|g|ml|l|oz|lbs|lb)$/i);
+    if (trailingMatch) {
+      return {
+        amount: parseAmountStr(trailingMatch[2]),
+        rawUnit: trailingMatch[3].toLowerCase(),
+        namePart: trailingMatch[1],
+      };
+    }
+  }
+
   // Token-split path
   const expanded = String(wordsToNumbers(expandUnicodeFracs(l)) ?? l);
   const tokens = expanded.split(/\s+/);
+
+  // Leading-only units ("2 cloves garlic") — checked here so the general scan below
+  // never sees them in trailing position ("garlic cloves").
+  const leadingUnit = LEADING_ONLY_UNITS[(tokens[1] ?? '').toLowerCase()];
+  if (leadingUnit && parseAmountStr(tokens[0]) !== 0) {
+    return {
+      amount: parseAmountStr(tokens[0]),
+      rawUnit: tokens[1].toLowerCase(),
+      namePart: tokens.slice(2).join(' '),
+    };
+  }
 
   let unitIdx = -1;
   for (let i = 0; i < tokens.length; i++) {
@@ -278,7 +331,7 @@ function findAmount(line) {
  */
 function findUnit(rawUnit) {
   if (!rawUnit) return 'each';
-  return UNIT_NORM[rawUnit] ?? 'each';
+  return UNIT_NORM[rawUnit] ?? LEADING_ONLY_UNITS[rawUnit] ?? 'each';
 }
 
 /**
@@ -286,14 +339,21 @@ function findUnit(rawUnit) {
  * Strips parentheticals, alternative-unit annotations, comma-suffixes, and leading "of".
  */
 function findIngredient(namePart) {
-  return namePart
+  const cleaned = namePart
     .replace(/\(.*?\)/g, '')           // strip "(sifted)" etc.
     .replace(/\/\/.*$/, '')            // strip "// or sub coconut aminos..." comments
     .replace(/,.*$/, '')               // strip ", finely chopped" etc.
-    .replace(/^of\s+/, '')             // strip leading "of "
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+
+  // Strip leading size/prep/container words ("3 large eggs" → "eggs",
+  // "1 x 400g tin chopped tomatoes" → "tomatoes"). Never strip the last word,
+  // so a line that is entirely noise still yields something to match on.
+  const words = cleaned.split(' ').filter(Boolean);
+  let start = 0;
+  while (start < words.length - 1 && NAME_PREFIX_NOISE.has(words[start])) start++;
+  return words.slice(start).join(' ');
 }
 
 /**

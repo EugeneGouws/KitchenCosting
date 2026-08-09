@@ -52,6 +52,13 @@ ${ingredientLines.join('\n')}`;
 
 import { resolveIngredientLine } from './importer.js';
 
+// Master kill switch. The local Ollama backend is shelved (connection refused), and
+// probing it logs an unsuppressable ERR_CONNECTION_REFUSED on every mount and every
+// "AI Check" click — the browser emits that before our try/catch can run.
+// Flip to true to re-enable both backends; every public function already handles a
+// null backend, so nothing else needs to change.
+const AI_ENABLED = false;
+
 const OLLAMA_URL        = 'http://localhost:11434/api/generate';
 const OLLAMA_MODEL      = 'qwen2.5:1.5b';
 const AI_TIMEOUT_MS     = 20000; // per-prompt timeout (ms) — cold first prompt may need extra time
@@ -94,6 +101,8 @@ function getLangModelAPI() {
  * @returns {Promise<'gemini-nano'|'ollama'|null>}
  */
 export async function detectAIBackend() {
+  if (!AI_ENABLED) return null;
+
   console.log('[AI] ═══ Backend detection start ═══');
   console.log('[AI] window.LanguageModel:', window?.LanguageModel ?? 'undefined');
   console.log('[AI] window.ai:', window?.ai ?? 'undefined');

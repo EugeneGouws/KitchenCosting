@@ -1,16 +1,20 @@
-/* Overlay anchored to .book-wrap — covers the full brown shape */
+/* Standalone overlay — deliberately NOT anchored to .book-wrap. Inside the book it
+   inherited the panel height and the content had to scroll; as its own fixed overlay
+   it sizes to the viewport and shows both pages in full. */
 .welcome-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
-  border-radius: 6px 6px 4px 4px;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
 }
 
-/* Book wrapper fills the full .book-wrap area */
+/* Book wrapper — sized to content, capped so it always fits the viewport */
 .welcome-book {
-  flex: 1;
   position: relative;
   background: #7b5c3a;
   border-radius: 6px 6px 4px 4px;
@@ -18,6 +22,10 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 1000px;
+  max-height: calc(100vh - 48px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
 }
 
 /* Page-edge grain strips — matches .book-wrap::before / ::after */
@@ -206,6 +214,39 @@
 .welcome-legend-text strong {
   color: var(--tx-primary);
   font-weight: 600;
+}
+
+/* Storage warning — first thing on the left page. Uses the amber stale-dot colour
+   so it reads as "pay attention" without the alarm of the red no-price state. */
+.welcome-storage-warn {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  background: #fdf6e9;
+  border: 1px solid var(--dot-stale);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+}
+
+.welcome-storage-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.welcome-storage-text {
+  font-size: 11px;
+  color: var(--tx-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.welcome-storage-text strong {
+  display: block;
+  color: var(--tx-primary);
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 
 /* Small italic note at the bottom */

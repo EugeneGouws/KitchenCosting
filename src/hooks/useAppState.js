@@ -1,36 +1,64 @@
 import { useState, useEffect } from 'react'
-import { readPantry, readRecipes, saveRecipes, savePantryItem, saveRecipe, toggleRecipeFavourite, deleteRecipe as _deleteRecipe, migratePantryIfNeeded, syncPricesFromServer } from '../io/index.js'
-import { importFinished, resolveIngredients } from '../lib/index.js'
+import { readPantry, readRecipes, saveRecipes, savePantryItem, saveRecipe, toggleRecipeFavourite, deleteRecipe as _deleteRecipe, migratePantryIfNeeded, computeStagedPriceChanges, markPricePromptSeen } from '../io/index.js'
+import { importFinished, resolveIngredients, reconvertIngredients } from '../lib/index.js'
+import { computeCostPerUnit } from '../lib/pricer.js'
 
 export default function useAppState() {
   const [pantry, setPantry] = useState([])
   const [recipes, setRecipes] = useState([])
+  const [pricePushSets, setPricePushSets] = useState({ setA: [], setB: [] })
 
   useEffect(() => {
     migratePantryIfNeeded()
     const loadedPantry   = readPantry()
     const loadedRecipes  = readRecipes()
 
-    // Defensive: any stored recipes lacking matchedIngredient/convertedAmount get matched once
-    // and persisted so this fixup never reruns. Seed data is pre-resolved and won't trigger this.
-    const needsFixup = loadedRecipes.some(r =>
-      r.ingredients?.some(i => i.convertedAmount === undefined)
-    )
-    if (needsFixup) {
-      const fixed = loadedRecipes.map(r => ({
-        ...r,
-        ingredients: resolveIngredients(r.ingredients ?? [], loadedPantry),
-      }))
-      saveRecipes(fixed)
-      setPantry(loadedPantry)
-      setRecipes(fixed)
-    } else {
-      setPantry(loadedPantry)
-      setRecipes(loadedRecipes)
-    }
+    // Two defensive passes, both idempotent:
+    //   resolveIngredients  — matches ingredients that were never run through the pipeline
+    //   reconvertIngredients — re-applies unit conversion to already-matched rows, repairing
+    //                          recipes stored before the importer converted (a "3 cup" row
+    //                          saved as convertedAmount 3 against a per-gram price)
+    // Only persisted when something actually changed, so this settles after one load.
+    const fixed = loadedRecipes.map(r => ({
+      ...r,
+      ingredients: reconvertIngredients(
+        resolveIngredients(r.ingredients ?? [], loadedPantry),
+        loadedPantry,
+      ),
+    }))
+    const changed = JSON.stringify(fixed) !== JSON.stringify(loadedRecipes)
+    if (changed) saveRecipes(fixed)
 
-    syncPricesFromServer(loadedRecipes).then(() => setPantry(readPantry()))
+    setPantry(loadedPantry)
+    setRecipes(fixed)
+
+    const usedIds = new Set(
+      fixed.flatMap(r => (r.ingredients ?? []).map(i => i.matchedIngredient).filter(Boolean))
+    )
+    setPricePushSets(computeStagedPriceChanges(usedIds))
   }, [])
+
+  function applyPricePush(rows) {
+    const today = new Date().toISOString().split('T')[0]
+    for (const row of rows) {
+      savePantryItem({
+        id:              row.id,
+        packagePrice:    row.newPrice,
+        packageValue:    row.newPackageValue,
+        packageUnit:     row.newPackageUnit,
+        matchedProduct:  row.newMatchedProduct,
+        dateLastUpdated: today,
+        priceSource:     'apify',
+        costPerUnit:     computeCostPerUnit(row.newPrice, row.newPackageValue, row.newPackageUnit, row.baseUnit),
+      })
+    }
+    setPantry(readPantry())
+  }
+
+  function finishPricePush() {
+    markPricePromptSeen()
+    setPricePushSets({ setA: [], setB: [] })
+  }
 
   function addRecipeToState(recipe, opts) {
     importFinished(recipe, opts)
@@ -68,5 +96,5 @@ export default function useAppState() {
     setRecipes(readRecipes())
   }
 
-  return { pantry, recipes, addRecipeToState, editRecipeInState, updateItemPrice, addIngredient, updateIngredient, toggleFavourite, deleteRecipe }
+  return { pantry, recipes, pricePushSets, applyPricePush, finishPricePush, addRecipeToState, editRecipeInState, updateItemPrice, addIngredient, updateIngredient, toggleFavourite, deleteRecipe }
 }

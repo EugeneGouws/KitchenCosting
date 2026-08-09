@@ -8,8 +8,9 @@
     "dev:netlify": "netlify dev",
     "build": "vite build",
     "preview": "vite preview",
-    "price:refresh": "node scripts/price-refresh.js refresh",
-    "price:add": "node scripts/price-refresh.js add"
+    "price:fetch": "node scripts/fetch-new-prices.js",
+    "price:push": "node scripts/push-prices.js",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",

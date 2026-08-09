@@ -13,6 +13,18 @@ function formatCostPerUnit(item) {
   return `R${(item.costPerUnit * 100).toFixed(2)}/100g`
 }
 
+// Trim trailing zeros so 384 stays 384 and 226.796 becomes 226.8
+function formatQty(n) {
+  if (n == null || Number.isNaN(n)) return '—'
+  return Number(n.toFixed(2)).toString()
+}
+
+// "1.5 cup" — the amount exactly as the recipe stated it
+function formatRecipeQty(ing) {
+  if (ing.amount == null) return '—'
+  return `${formatQty(ing.amount)} ${ing.unit ?? ''}`.trim()
+}
+
 function dotClass(pantryItem) {
   if (!pantryItem || pantryItem.costPerUnit === 0) return 'red'
   if (pantryItem.needsCosting) return 'amber'
@@ -38,8 +50,11 @@ export default function CostingModal({ recipe, pantry, layoutMode = 'wide', onSe
       const pantryItem = pantryMap.get(ing.matchedIngredient)
       const amt = ing.convertedAmount ?? 0
       const cpu = pantryItem?.costPerUnit ?? 0
-      const cost = amt > 0 && cpu > 0 ? amt * cpu : null
-      return { ing, pantryItem, cost, key: ing.matchedIngredient ?? ing.id ?? i }
+      // Only cost a row whose amount actually reached the pantry item's baseUnit.
+      // "3 cup" against a R/g price would otherwise read as 3 grams.
+      const converted = !pantryItem || ing.convertedUnit === pantryItem.baseUnit
+      const cost = converted && amt > 0 && cpu > 0 ? amt * cpu : null
+      return { ing, pantryItem, cost, converted, key: ing.matchedIngredient ?? ing.id ?? i }
     }),
     [ingredients, pantryMap]
   )
@@ -107,8 +122,18 @@ export default function CostingModal({ recipe, pantry, layoutMode = 'wide', onSe
           </div>
         </div>
 
+        <div className="costing-ing-head">
+          <span />
+          <span />
+          <span>Ingredient</span>
+          <span>Recipe</span>
+          <span>Converted</span>
+          <span>Unit price</span>
+          <span>Cost</span>
+        </div>
+
         <div className="panel-list">
-          {ingredientRows.map(({ ing, pantryItem, cost, key }) => (
+          {ingredientRows.map(({ ing, pantryItem, cost, converted, key }) => (
             <div key={key} className="costing-ing-row">
               <input
                 type="checkbox"
@@ -120,6 +145,14 @@ export default function CostingModal({ recipe, pantry, layoutMode = 'wide', onSe
               <span className={`status-dot ${dotClass(pantryItem)}`} />
               <span className="costing-ing-name">
                 {pantryItem?.canonicalName ?? ing.name ?? ing.raw}
+              </span>
+              <span className="costing-ing-qty">
+                {formatRecipeQty(ing)}
+              </span>
+              <span className={`costing-ing-conv${converted ? '' : ' unconverted'}`}>
+                {converted
+                  ? `${formatQty(ing.convertedAmount)} ${ing.convertedUnit ?? ''}`.trim()
+                  : 'no conversion'}
               </span>
               <span className="costing-ing-cpu">
                 {formatCostPerUnit(pantryItem)}

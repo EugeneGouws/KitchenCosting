@@ -8,6 +8,9 @@
   flex-direction: column;
   gap: 14px;
   box-sizing: border-box;
+  /* Fill the window so the book can take the leftover height instead of sitting at a
+     fixed 450px with dead space and a scrollbar below it. */
+  min-height: 100vh;
 }
 
 .nkc-card {

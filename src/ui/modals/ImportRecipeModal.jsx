@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { findCandidates, AIMatchIngredient, AISuggestRecipeMeta } from '../../lib/index.js'
+import { findCandidates, convertAmount } from '../../lib/index.js'
 import AddIngredientModal from './AddIngredientModal.jsx'
 import './modal-base.css'
 import './ImportRecipeModal.css'
@@ -24,12 +24,11 @@ function computeSuggestions(value, pantryList) {
 export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collections, onImport, onSave, onAddIngredient, onClose }) {
   const isEditRecipe = mode === 'edit'
 
-  const [aiMode,        setAiMode]        = useState(false)
-  const [aiProgress,    setAiProgress]    = useState('')
-  const [aiError,       setAiError]       = useState(null)
   const [editRows,      setEditRows]      = useState([])
   const [editTitle,     setEditTitle]     = useState('')
-  const [editServings,  setEditServings]  = useState(1)
+  // '' = not yet supplied. Import is blocked until the user enters a real number —
+  // defaulting to 1 silently produced a per-serving cost equal to the whole batch.
+  const [editServings,  setEditServings]  = useState('')
   const [editTags,      setEditTags]      = useState([])
   const [tagInput,      setTagInput]      = useState('')
   const [suggestions,   setSuggestions]   = useState({})  // { rowIndex: [{entry}] }
@@ -50,21 +49,11 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
     setPendingFill(null)
   }, [pantry, pendingFill])
 
-  // Auto-exit AI mode when all ingredients become matched
-  useEffect(() => {
-    if (aiMode && editRows.length > 0 && editRows.every(r => r.matchedId)) {
-      setAiMode(false)
-    }
-  }, [editRows])
-
   useEffect(() => {
     if (!isOpen) {
-      setAiMode(false)
-      setAiProgress('')
-      setAiError(null)
       setEditRows([])
       setEditTitle('')
-      setEditServings(1)
+      setEditServings('')
       setEditTags([])
       setTagInput('')
       setSuggestions({})
@@ -75,7 +64,7 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
     if (isOpen && recipe) {
       setEditRows(buildEditRows(recipe, pantry ?? []))
       setEditTitle(recipe.title ?? '')
-      setEditServings(recipe.servings ?? 1)
+      setEditServings(recipe.servings > 0 ? recipe.servings : '')
       setEditTags(recipe.collection ? recipe.collection.split(',').map(t => t.trim()).filter(Boolean) : [])
     }
   }, [isOpen])
@@ -133,7 +122,12 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
   function handleImport() {
     if (!recipe) return
     const updatedIngredients = editRows.map((row, i) => {
-      const orig = ingredients[i] ?? {}
+      const orig   = ingredients[i] ?? {}
+      const amount = parseFloat(row.amount) || 0
+      const entry  = row.matchedId ? pantryList.find(p => p.id === row.matchedId) : null
+      // Convert into the pantry item's baseUnit. Without this a "3 cup" row was stored
+      // as convertedAmount 3 and later multiplied by a per-gram cost.
+      const { convertedUnit, convertedAmount } = convertAmount(amount, row.unit, entry)
       return {
         ...orig,
         id:                orig.id ?? i,
@@ -141,13 +135,13 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
         matchedIngredient: row.matchedId,
         confident:         !!row.matchedId,
         needsConfirm:      false,
-        amount:            parseFloat(row.amount) || 0,
+        amount,
         unit:              row.unit,
-        convertedAmount:   parseFloat(row.amount) || 0,
-        convertedUnit:     row.unit,
+        convertedAmount,
+        convertedUnit,
       }
     })
-    const updated = { ...recipe, title: editTitle, servings: editServings, collection: editTags.join(','), ingredients: updatedIngredients }
+    const updated = { ...recipe, title: editTitle, servings: parseInt(editServings, 10), collection: editTags.join(','), ingredients: updatedIngredients }
     if (isEditRecipe) {
       onSave?.(updated)
     } else {
@@ -155,69 +149,21 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
     }
   }
 
-  // ── AI Check ────────────────────────────────────────────────────────────────
-
-  async function handleAICheck() {
-    setAiMode(true)
-    setAiProgress('Starting AI check…')
-    setAiError(null)
-
-    try {
-      const unmatchedCount = editRows.filter(r => !r.matchedId).length
-      console.log(`[ImportRecipe] Starting AI check for ${unmatchedCount} unmatched ingredients`);
-
-      // Build pseudo-recipe with confident flags driven by editRows' matchedId
-      const pseudoRecipe = {
-        ...recipe,
-        ingredients: recipe.ingredients.map((ing, i) => ({
-          ...ing,
-          confident: !!editRows[i]?.matchedId,
-          matchedIngredient: editRows[i]?.matchedId ?? null,
-        }))
-      }
-
-      setAiProgress(`Processing ${unmatchedCount} ingredients…`)
-      const [updated, meta] = await Promise.all([
-        AIMatchIngredient(pseudoRecipe, pantryList),
-        AISuggestRecipeMeta(pseudoRecipe, collections ?? []),
-      ])
-      const aiResolved = updated.ingredients.filter(ing => ing.aiResolved).length
-      console.log(`[ImportRecipe] AI resolved ${aiResolved}/${unmatchedCount} ingredients`);
-      console.log(`[ImportRecipe] AI meta suggestion:`, meta);
-
-      // Map AI-resolved results back to editRows
-      setEditRows(prev => prev.map((row, i) => {
-        if (row.matchedId) return row // already matched — don't touch
-        const ing = updated.ingredients[i]
-        if (ing?.aiResolved && ing.matchedIngredient) {
-          const matched = pantryList.find(p => p.id === ing.matchedIngredient)
-          console.log(`[ImportRecipe] AI matched row ${i}: "${row.nameInput}" → "${matched?.canonicalName}"`);
-          return { ...row, nameInput: matched?.canonicalName ?? row.nameInput, matchedId: ing.matchedIngredient }
-        }
-        return row
-      }))
-
-      // Apply meta non-destructively — only fill empty / default fields so user input is never overwritten
-      if (meta.collection) setEditTags(prev => prev.length ? prev : [meta.collection])
-      if (meta.servings)   setEditServings(prev => prev > 1 ? prev : meta.servings)
-
-      setAiProgress('')
-      setAiMode(false) // always exit aiMode when AI completes (matched or not)
-    } catch (err) {
-      console.error('[ImportRecipe] AI check failed:', err);
-      setAiError(err.message || 'AI check failed. Please try manual matching.');
-      setAiProgress('')
-      setAiMode(false)
-    }
-  }
-
   // ── Derived state ──────────────────────────────────────────────────────────
 
-  const canImport   = recipe != null && editRows.every(r => r.matchedId)
+  const servingsNum   = parseInt(editServings, 10)
+  const servingsValid = Number.isInteger(servingsNum) && servingsNum >= 1
+  const allMatched    = editRows.every(r => r.matchedId)
+  const canImport     = recipe != null && allMatched && servingsValid
+
   const matchedCount = editRows.filter(r => r.matchedId).length
-  const infoText     = recipe
-    ? `${matchedCount} / ${editRows.length} matched`
-    : 'Awaiting import…'
+  const infoText     = !recipe
+    ? 'Awaiting import…'
+    : !allMatched
+      ? `${matchedCount} / ${editRows.length} matched`
+      : servingsValid
+        ? `${matchedCount} / ${editRows.length} matched`
+        : 'Enter servings to continue'
 
   return (
     <div className="import-recipe-modal">
@@ -250,21 +196,7 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
             >
               {isEditRecipe ? 'Save Recipe' : 'Import Recipe'}
             </button>
-            {aiMode && <span className="status-dot dot-thinking" />}
-            <span className="modal-info-box">
-              {aiError ? (
-                <span style={{ color: '#c0392b' }}>Error: {aiError}</span>
-              ) : aiProgress ? (
-                <span style={{ color: '#f39c12' }}>{aiProgress}</span>
-              ) : (
-                infoText
-              )}
-            </span>
-            {recipe && editRows.some(r => !r.matchedId) && (
-              aiMode
-                ? <button className="ctrl-btn" onClick={() => setAiMode(false)}>Cancel</button>
-                : <button className="ctrl-btn" onClick={handleAICheck}>AI Check</button>
-            )}
+            <span className="modal-info-box">{infoText}</span>
           </div>
         </div>
 
@@ -284,11 +216,18 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
                 />
                 <span className="ing-meta-label">Servings</span>
                 <input
-                  className="ing-edit-qty"
+                  className={`ing-edit-qty${servingsValid ? '' : ' input-required'}`}
                   type="number"
                   min="1"
                   value={editServings}
-                  onChange={e => setEditServings(Math.max(1, parseInt(e.target.value) || 1))}
+                  placeholder="?"
+                  aria-invalid={!servingsValid}
+                  onChange={e => {
+                    const raw = e.target.value
+                    if (raw === '') return setEditServings('')
+                    const n = parseInt(raw, 10)
+                    setEditServings(Number.isNaN(n) ? '' : Math.max(1, n))
+                  }}
                 />
               </div>
               <div className="ing-row ing-row--meta">
@@ -338,29 +277,25 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
               {editRows.map((row, i) => (
                 <div key={i} className="ing-row">
                   <span className={`status-dot ${row.matchedId ? 'green' : 'red'}`} />
-                  {!aiMode && (
-                    <button
-                      className="ctrl-btn ing-row-delete"
-                      onClick={() => handleDeleteRow(i)}
-                      aria-label="Remove ingredient"
-                      title="Remove"
-                    >✕</button>
-                  )}
+                  <button
+                    className="ctrl-btn ing-row-delete"
+                    onClick={() => handleDeleteRow(i)}
+                    aria-label="Remove ingredient"
+                    title="Remove"
+                  >✕</button>
                   <div className="ing-edit-name-wrap">
                     <input
                       className="ing-edit-name"
                       value={row.nameInput}
-                      onChange={e => !aiMode && handleNameChange(i, e.target.value)}
+                      onChange={e => handleNameChange(i, e.target.value)}
                       onFocus={() => {
-                        if (aiMode) return
                         const suggs = computeSuggestions(row.nameInput, pantryList)
                         if (suggs.length > 0) { setSuggestions(prev => ({ ...prev, [i]: suggs })); setOpenDropdown(i) }
                       }}
                       onBlur={() => setTimeout(() => setOpenDropdown(null), 250)}
                       placeholder="Search pantry…"
-                      readOnly={aiMode}
                     />
-                    {!aiMode && openDropdown === i && (suggestions[i]?.length > 0 || row.nameInput.length >= 2) && (
+                    {openDropdown === i && (suggestions[i]?.length > 0 || row.nameInput.length >= 2) && (
                       <div className="ing-dropdown">
                         {(suggestions[i] ?? []).map(({ entry }) => (
                           <div
@@ -394,22 +329,18 @@ export default function ImportRecipeModal({ isOpen, mode, recipe, pantry, collec
                     value={row.amount}
                     onChange={e => updateRow(i, { amount: e.target.value })}
                     placeholder="qty"
-                    readOnly={aiMode}
                   />
                   <input
                     className="ing-edit-unit"
                     value={row.unit}
                     onChange={e => updateRow(i, { unit: e.target.value })}
                     placeholder="unit"
-                    readOnly={aiMode}
                   />
                 </div>
               ))}
-              {!aiMode && (
-                <div className="ing-row ing-row--add">
-                  <button className="ctrl-btn" onClick={handleAddRow}>+ Add ingredient</button>
-                </div>
-              )}
+              <div className="ing-row ing-row--add">
+                <button className="ctrl-btn" onClick={handleAddRow}>+ Add ingredient</button>
+              </div>
             </>
           )}
         </div>

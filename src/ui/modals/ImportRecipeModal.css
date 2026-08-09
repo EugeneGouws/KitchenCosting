@@ -120,6 +120,17 @@
   border-color: var(--green-accent);
 }
 
+/* Required-but-empty field — blocks import until filled (e.g. Servings) */
+.input-required {
+  border-color: var(--dot-stale);
+  background: #fdf6e9;
+}
+
+.input-required::placeholder {
+  color: var(--dot-stale);
+  opacity: 1;
+}
+
 /* Name input + dropdown wrapper */
 .ing-edit-name-wrap {
   flex: 1;

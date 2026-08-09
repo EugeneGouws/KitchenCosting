@@ -77,19 +77,35 @@
 }
 
 /* ── Ingredient rows ── */
+/* Ingredient table — checkbox | dot | name | recipe qty | converted qty | unit price | cost.
+   Header and rows share one grid template so the columns stay aligned. */
+.costing-ing-head,
 .costing-ing-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 14px 8px minmax(0, 1fr) 74px 88px 96px 68px;
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border-bottom: 1px solid var(--border);
   font-size: 12px;
+}
+
+.costing-ing-head {
+  font-size: 10px;
+  color: var(--tx-muted);
+  padding-top: 4px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+}
+
+.costing-ing-head span:nth-child(n + 4) { text-align: right; }
+
+.costing-ing-row {
+  border-bottom: 1px solid var(--border);
 }
 
 .costing-ing-row:hover { background: var(--import-hover); }
 
 .costing-ing-name {
-  flex: 1;
   color: var(--tx-primary);
   min-width: 0;
   overflow: hidden;
@@ -97,16 +113,29 @@
   white-space: nowrap;
 }
 
+.costing-ing-qty,
+.costing-ing-conv {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--tx-secondary);
+}
+
+/* Amount never reached the pantry baseUnit — the row cannot be costed */
+.costing-ing-conv.unconverted {
+  color: var(--dot-stale);
+  font-style: italic;
+}
+
 .costing-ing-cpu {
-  flex: 0 0 84px;
-  text-align: center;
+  text-align: right;
+  white-space: nowrap;
   color: var(--tx-secondary);
   font-size: 11px;
 }
 
 .costing-ing-total {
-  flex: 0 0 52px;
   text-align: right;
+  white-space: nowrap;
   color: var(--tx-primary);
 }
 

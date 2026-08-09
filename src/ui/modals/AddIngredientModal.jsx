@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { AIFillIngredient } from '../../lib/index.js'
 import './modal-base.css'
 import './AddIngredientModal.css'
 
@@ -12,14 +11,9 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
   const [pkgMatch,    setPkgMatch]    = useState('')
   const [conversions, setConversions] = useState('')
   const [aliases,     setAliases]     = useState('')
-  const [aiMode,      setAiMode]      = useState(false)
-  const [aiLoading,   setAiLoading]   = useState(false)
 
   useEffect(() => {
-    if (!isOpen) {
-      setAiMode(false)
-      return
-    }
+    if (!isOpen) return
     if (item) {
       // Editing an existing pantry item — populate all fields
       setName(item.canonicalName ?? '')
@@ -56,17 +50,6 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
     onAdd({ name: name.trim(), baseUnit, pkgValue, pkgUnit, pkgPrice, pkgMatch, conversions, aliases })
   }
 
-  async function handleAiCheck() {
-    setAiMode(true)
-    setAiLoading(true)
-    const result = await AIFillIngredient(name)
-    if (result.baseUnit)    setBaseUnit(result.baseUnit)
-    if (result.aliases)     setAliases(result.aliases)
-    if (result.conversions) setConversions(result.conversions)
-    setAiLoading(false)
-    setAiMode(false)
-  }
-
   function formatPrice(val) {
     const n = parseFloat(val)
     return isNaN(n) ? '' : n.toFixed(2)
@@ -87,10 +70,6 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
           >
             {item ? 'Save Changes' : 'Add Ingredient'}
           </button>
-          {aiLoading
-            ? <button className="ctrl-btn" disabled>Thinking…</button>
-            : <button className="ctrl-btn" onClick={handleAiCheck} disabled={!name.trim()}>AI Check</button>
-          }
         </div>
       </div>
 
@@ -100,36 +79,28 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
         <div className="field-row">
           <span
             className="field-dot"
-            style={{ background: !aiMode && name.trim() === '' ? '#c0392b' : 'transparent' }}
+            style={{ background: name.trim() === '' ? '#c0392b' : 'transparent' }}
           />
           <span className="field-label">Name</span>
           <div className="field-value">
-            {!aiMode
-              ? <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cake Flour" />
-              : <span className="field-text">{name || <em className="field-empty">—</em>}</span>
-            }
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cake Flour" />
           </div>
         </div>
 
         {/* Mandatory: Base Unit */}
         <div className="field-row">
           <span
-            className={`field-dot${aiMode && baseUnit === '' ? ' dot-thinking' : ''}`}
-            style={{ background: !aiMode && baseUnit === '' ? '#c0392b' : 'transparent' }}
+            className="field-dot"
+            style={{ background: baseUnit === '' ? '#c0392b' : 'transparent' }}
           />
           <span className="field-label">Base Unit</span>
           <div className="field-value">
-            {!aiMode
-              ? (
-                <select value={baseUnit} onChange={e => setBaseUnit(e.target.value)}>
-                  <option value="">— select —</option>
-                  <option value="g">g</option>
-                  <option value="ml">ml</option>
-                  <option value="each">each</option>
-                </select>
-              )
-              : <span className="field-text">{baseUnit || <em className="field-empty">—</em>}</span>
-            }
+            <select value={baseUnit} onChange={e => setBaseUnit(e.target.value)}>
+              <option value="">— select —</option>
+              <option value="g">g</option>
+              <option value="ml">ml</option>
+              <option value="each">each</option>
+            </select>
           </div>
         </div>
 
@@ -150,13 +121,11 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
                 value={pkgValue}
                 onChange={e => setPkgValue(e.target.value)}
                 placeholder="1000"
-                readOnly={aiMode}
               />
               <select
                 className="field-price-unit"
                 value={pkgUnit}
                 onChange={e => setPkgUnit(e.target.value)}
-                disabled={aiMode}
               >
                 <option value="g">g</option>
                 <option value="ml">ml</option>
@@ -172,7 +141,6 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
                 onChange={e => setPkgPrice(e.target.value)}
                 onBlur={e => setPkgPrice(formatPrice(e.target.value))}
                 placeholder="0.00"
-                readOnly={aiMode}
               />
             </div>
           </div>
@@ -180,19 +148,14 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
 
         {/* Matched product name */}
         <div className="field-row">
-          <span className={`field-dot${aiMode ? ' dot-thinking' : ''}`} />
+          <span className="field-dot" />
           <span className="field-label">Product</span>
           <div className="field-value">
-            {!aiMode
-              ? (
-                <input
-                  value={pkgMatch}
-                  onChange={e => setPkgMatch(e.target.value)}
-                  placeholder="e.g. Sasko Cake Flour 2kg"
-                />
-              )
-              : <span className="field-text">{pkgMatch || <em className="field-empty">—</em>}</span>
-            }
+            <input
+              value={pkgMatch}
+              onChange={e => setPkgMatch(e.target.value)}
+              placeholder="e.g. Sasko Cake Flour 2kg"
+            />
           </div>
         </div>
 
@@ -201,37 +164,27 @@ export default function AddIngredientModal({ isOpen, item, ingredientName, onAdd
 
         {/* Conversions */}
         <div className="field-row">
-          <span className={`field-dot${aiMode ? ' dot-thinking' : ''}`} />
+          <span className="field-dot" />
           <span className="field-label">Conversions</span>
           <div className="field-value">
-            {!aiMode
-              ? (
-                <input
-                  value={conversions}
-                  onChange={e => setConversions(e.target.value)}
-                  placeholder="e.g. cup:240"
-                />
-              )
-              : <span className="field-text">{conversions || <em className="field-empty">—</em>}</span>
-            }
+            <input
+              value={conversions}
+              onChange={e => setConversions(e.target.value)}
+              placeholder="e.g. cup:250"
+            />
           </div>
         </div>
 
         {/* Aliases */}
         <div className="field-row">
-          <span className={`field-dot${aiMode ? ' dot-thinking' : ''}`} />
+          <span className="field-dot" />
           <span className="field-label">Aliases</span>
           <div className="field-value">
-            {!aiMode
-              ? (
-                <input
-                  value={aliases}
-                  onChange={e => setAliases(e.target.value)}
-                  placeholder="e.g. flour, plain flour"
-                />
-              )
-              : <span className="field-text">{aliases || <em className="field-empty">—</em>}</span>
-            }
+            <input
+              value={aliases}
+              onChange={e => setAliases(e.target.value)}
+              placeholder="e.g. flour, plain flour"
+            />
           </div>
         </div>
 

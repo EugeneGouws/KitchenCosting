@@ -3,6 +3,11 @@
   background: #7b5c3a;
   border-radius: 6px 6px 4px 4px;
   padding: 14px 18px 18px;
+  /* Grow into whatever height .nkc-app has left over */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.28),
     0 2px 8px rgba(0, 0, 0, 0.18),
@@ -38,7 +43,10 @@
   display: flex;
   gap: 0;
   align-items: stretch;
-  height: 450px;
+  /* Was a fixed 450px, which left the lower half of a normal window empty while the
+     panel lists scrolled internally. Now fills the book, with a floor for short windows. */
+  flex: 1;
+  min-height: 380px;
   position: relative;
   z-index: 1;
 }
@@ -88,6 +96,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
 }
 
 .narrow-stack .nkc-panel {

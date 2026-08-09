@@ -173,7 +173,7 @@ wrangler secret put APIFY_KEY --env production
 wrangler deploy --env production
 ```
 
-Worker config lives in `wrangler.toml`. Live URL: `https://nkc-fetch-prices-production.egouws-music.workers.dev`. The frontend (`src/lib/pricer.js`) points to this URL directly.
+Worker config lives in `wrangler.toml`. Live URL: `https://nkc-fetch-prices-production.egouws.workers.dev`, exported as `PRICE_WORKER_URL` from `src/lib/pricer.js` — the single place to change it if the Worker moves again.
 
 \---
 

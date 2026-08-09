@@ -7,13 +7,13 @@
  */
 
 import seedPantry from '../data/pantry.json';
+import { withDerivedConversions } from '../lib/units.js';
 
 const PANTRY_KEY = 'local_pantry';
 const PANTRY_VERSION_KEY = 'kitchen_pantry_version';
-const CURRENT_PANTRY_VERSION = 'v4';
+const CURRENT_PANTRY_VERSION = 'v8';
+const PRICE_PROMPT_VERSION_KEY = 'kitchen_price_prompt_version';
 
-// Same Worker deployment pricer.js calls for Apify search — see src/lib/pricer.js
-const WORKER_BASE_URL = 'https://nkc-fetch-prices-production.egouws-music.workers.dev';
 const STALE_DAYS = 7;
 
 // ─── Internal read/write ──────────────────────────────────────────────────────
@@ -86,7 +86,9 @@ function isStale(dateStr) {
  * @returns {Array} PantryItem[]
  */
 export function readPantry() {
-  return readAllPantry();
+  // Conversions are materialised here and only here. Write paths use the raw
+  // readAllPantry() so derived values never get persisted back as authored ones.
+  return readAllPantry().map(withDerivedConversions);
 }
 
 // ─── Public writes ───────────────────────────────────────────────────────────
@@ -189,6 +191,9 @@ export function savePantryItem(data) {
     canonicalName:   nameToCanonical(data.name),
     aliases:         parsedAliases?.length ? parsedAliases : [data.name.toLowerCase()],
     baseUnit:        data.baseUnit ?? 'each',
+    // User-added items have no density; their authored conversions act as overrides.
+    gPerMl:          data.gPerMl ?? null,
+    gPerEach:        data.gPerEach ?? null,
     conversions:     parsedConversions ?? {},
     costPerUnit:     computedCostPerUnit ?? 0,
     packageValue:    pv,
@@ -257,6 +262,10 @@ export function migratePantryIfNeeded() {
   const merged = seedPantry.map(seedItem => {
     const existing = storedById[seedItem.id]
     if (!existing) return seedItem
+    // If the seed changed an item's baseUnit, the stored price is denominated in the old
+    // unit and carrying it over would be wrong by the conversion factor (banana moved
+    // each → g at v6: R3/each would have become R3/gram). Seed pricing wins instead.
+    if (existing.baseUnit && existing.baseUnit !== seedItem.baseUnit) return seedItem
     return {
       ...seedItem,
       costPerUnit:      existing.costPerUnit,
@@ -279,52 +288,67 @@ export function migratePantryIfNeeded() {
 }
 
 /**
- * Silent, one-shot background sync: pulls fresh prices for ingredients used by
- * the user's saved recipes from the self-hosted price server (via the Worker
- * proxy), merging into the local pantry. Never throws, never overwrites a
- * manually-set price (priceSource === 'user'), and only touches items whose
- * price is missing or older than STALE_DAYS. Safe to call every session load.
+ * Compares the bundled seed pantry against the stored pantry to find price
+ * changes that require user consent before being applied (see PricePushModal).
+ * Pure read — never writes. Returns { setA: [], setB: [] } once the current
+ * version has already been prompted (see markPricePromptSeen).
  *
- * @param {Array} recipes — Recipe[] from readRecipes()
+ * Set A (routine): priceSource unset or 'apify', incoming seed price differs.
+ * Set B (manual conflict): priceSource 'user', incoming seed price differs.
+ * Items with priceSource 'server' are out of scope (handled by the separate
+ * Asus sync flow). Only items referenced by at least one saved recipe are
+ * considered — prices no recipe uses are never prompted.
+ *
+ * @param {Set<string>|Array<string>} usedIds — pantry ids referenced by the user's recipes
+ * @returns {{ setA: Array, setB: Array }}
  */
-export async function syncPricesFromServer(recipes) {
-  const ids = [...new Set(
-    recipes.flatMap(r => (r.ingredients ?? []).map(i => i.matchedIngredient).filter(Boolean))
-  )]
-  if (ids.length === 0) return
+export function computeStagedPriceChanges(usedIds) {
+  const promptedVersion = localStorage.getItem(PRICE_PROMPT_VERSION_KEY)
+  if (promptedVersion === CURRENT_PANTRY_VERSION) return { setA: [], setB: [] }
 
-  let serverItems
-  try {
-    const resp = await fetch(`${WORKER_BASE_URL}/api/refresh-prices`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    })
-    if (!resp.ok) throw new Error(`refresh-prices returned ${resp.status}`)
-    serverItems = await resp.json()
-  } catch (err) {
-    console.error('[pantryStore] price server sync skipped:', err.message)
-    return
+  const used = usedIds instanceof Set ? usedIds : new Set(usedIds ?? [])
+
+  const stored = readAllPantry()
+  const storedById = Object.fromEntries(stored.map(item => [item.id, item]))
+
+  const setA = []
+  const setB = []
+
+  for (const seedItem of seedPantry) {
+    if (!used.has(seedItem.id)) continue
+    const existing = storedById[seedItem.id]
+    if (!existing) continue
+    if (existing.priceSource === 'server') continue
+    if (seedItem.packagePrice == null || existing.packagePrice == null) continue
+    if (seedItem.packagePrice === existing.packagePrice) continue
+
+    const row = {
+      id:               seedItem.id,
+      canonicalName:    existing.canonicalName,
+      oldPrice:         existing.packagePrice,
+      newPrice:         seedItem.packagePrice,
+      // null rather than Infinity for free items (water, etc. sit at packagePrice 0)
+      pctChange:        existing.packagePrice
+        ? ((seedItem.packagePrice - existing.packagePrice) / existing.packagePrice) * 100
+        : null,
+      newPackageValue:  seedItem.packageValue,
+      newPackageUnit:   seedItem.packageUnit,
+      newMatchedProduct: seedItem.matchedProduct,
+      baseUnit:         existing.baseUnit,
+    }
+
+    if (existing.priceSource === 'user') setB.push(row)
+    else setA.push(row)
   }
 
-  if (!Array.isArray(serverItems)) return
-
-  const pantryById = Object.fromEntries(readAllPantry().map(item => [item.id, item]))
-
-  for (const serverItem of serverItems) {
-    const local = pantryById[serverItem.id]
-    if (!local) continue
-    if (local.priceSource === 'user') continue
-    if (!isStale(local.dateLastUpdated)) continue
-
-    savePantryItem({
-      id:              serverItem.id,
-      packageValue:    serverItem.package_value,
-      packageUnit:     serverItem.package_unit,
-      packagePrice:    serverItem.package_price,
-      matchedProduct:  serverItem.matched_product,
-      dateLastUpdated: serverItem.last_updated ? serverItem.last_updated.split('T')[0] : new Date().toISOString().split('T')[0],
-      priceSource:     'server',
-    })
-  }
+  return { setA, setB }
 }
+
+/**
+ * Records that the current pantry version's price-push prompt has been shown
+ * (actioned or skipped) so it doesn't reappear on reload.
+ */
+export function markPricePromptSeen() {
+  localStorage.setItem(PRICE_PROMPT_VERSION_KEY, CURRENT_PANTRY_VERSION)
+}
+

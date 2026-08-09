@@ -26,7 +26,7 @@ function unitToBaseUnit(unit) {
  * Convert a parsed amount+unit to the pantry item's baseUnit using its conversions map.
  * Returns the original unit/amount unchanged if no conversion is available.
  */
-function convertAmount(amount, unit, pantryEntry) {
+export function convertAmount(amount, unit, pantryEntry) {
   if (!pantryEntry) return { convertedUnit: unit, convertedAmount: amount };
 
   const { baseUnit, conversions } = pantryEntry;
@@ -41,6 +41,33 @@ function convertAmount(amount, unit, pantryEntry) {
   }
 
   return { convertedUnit: unit, convertedAmount: amount };
+}
+
+/**
+ * reconvertIngredients(ingredients, pantry) → ingredients[]
+ *
+ * Re-runs convertAmount on ingredients that are already matched, using the
+ * matchedIngredient the user or importer settled on. Never re-matches, so manual
+ * ingredient choices are preserved. Idempotent — returns the same object when a
+ * row is already correct.
+ *
+ * Repairs recipes stored with convertedAmount left in the recipe's own unit
+ * (e.g. "3 cup carrots" saved as convertedAmount 3 instead of 3 × 128 = 384 g).
+ *
+ * @param {Array} ingredients — RecipeIngredient[]
+ * @param {Array} pantry      — PantryItem[]
+ * @returns {Array} RecipeIngredient[]
+ */
+export function reconvertIngredients(ingredients, pantry) {
+  return (ingredients ?? []).map(ing => {
+    if (!ing.matchedIngredient) return ing;
+    const entry = pantry.find(p => p.id === ing.matchedIngredient);
+    if (!entry) return ing;
+
+    const { convertedUnit, convertedAmount } = convertAmount(ing.amount ?? 0, ing.unit ?? '', entry);
+    if (convertedUnit === ing.convertedUnit && convertedAmount === ing.convertedAmount) return ing;
+    return { ...ing, convertedUnit, convertedAmount };
+  });
 }
 
 /**

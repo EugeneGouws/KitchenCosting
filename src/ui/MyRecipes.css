@@ -66,13 +66,6 @@
   min-width: 0;
 }
 
-.recipe-preview-total {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--tx-primary);
-  white-space: nowrap;
-}
-
 .recipe-preview-actions {
   display: flex;
   align-items: center;

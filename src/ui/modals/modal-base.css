@@ -113,7 +113,8 @@
 
 .modal-popout-box.size-ingredient { max-width: 480px; height: min(620px, 90vh); }
 .modal-popout-box.size-recipe     { max-width: 960px; height: min(640px, 90vh); }
-.modal-popout-box.size-costing    { max-width: 900px; height: min(600px, 90vh); }
+.modal-popout-box.size-costing    { max-width: 1180px; height: min(680px, 92vh); }
+.modal-popout-box.size-pricePush  { max-width: 640px; height: min(560px, 90vh); }
 
 .modal-popout-box.narrow {
   max-width: 100%;

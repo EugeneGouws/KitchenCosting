@@ -13,6 +13,13 @@ export default function WelcomeModal({ onClose }) {
               <p className="panel-heading">Welcome</p>
             </div>
             <div className="welcome-body">
+              <div className="welcome-storage-warn">
+                <span className="welcome-storage-icon" aria-hidden="true">⚠</span>
+                <p className="welcome-storage-text">
+                  <strong>Your data is saved in this browser only</strong>
+                  Recipes and prices live on this device. They are not backed up anywhere, and they do not follow you to another browser, phone, or computer. Clearing your browsing data — or using private/incognito mode — will delete them permanently.
+                </p>
+              </div>
               <p style={{ fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 600, color: 'var(--tx-primary)', margin: '0 0 4px' }}>
                 Kitchen Costings
               </p>
@@ -37,8 +44,8 @@ export default function WelcomeModal({ onClose }) {
                   <p className="welcome-feat-desc">Cost per serving, selling price, markup — all live.</p>
                 </div>
                 <div className="welcome-feat">
-                  <span className="welcome-feat-label">AI Assist</span>
-                  <p className="welcome-feat-desc">Matches ingredients automatically, no typing needed.</p>
+                  <span className="welcome-feat-label">Smart Matching</span>
+                  <p className="welcome-feat-desc">Recognises ingredient names for you, no typing needed.</p>
                 </div>
               </div>
             </div>
